@@ -48,11 +48,16 @@ RUN bun add -g gbrain
 # /app/skills-seed; the entrypoint copies them into $ALPHACLAW_ROOT_DIR/skills
 # on first boot, since the persistent disk isn't mounted during build.
 RUN mkdir -p /app/skills-seed \
-    && GBRAIN_PKG="$(bun pm ls -g --json 2>/dev/null | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);const p=j.dependencies?.gbrain?.path||"";process.stdout.write(p);})')" \
-    && if [ -n "$GBRAIN_PKG" ] && [ -d "$GBRAIN_PKG/skills" ]; then \
-         cp -r "$GBRAIN_PKG/skills/." /app/skills-seed/; \
+    && GBRAIN_SKILLS_DIR="$BUN_INSTALL/install/global/node_modules/gbrain/skills" \
+    && if [ ! -d "$GBRAIN_SKILLS_DIR" ]; then \
+         GBRAIN_SKILLS_DIR="$(find "$BUN_INSTALL" -type d -path '*/gbrain/skills' 2>/dev/null | head -n1)"; \
+       fi \
+    && if [ -n "$GBRAIN_SKILLS_DIR" ] && [ -d "$GBRAIN_SKILLS_DIR" ]; then \
+         echo "Seeding skills from $GBRAIN_SKILLS_DIR"; \
+         cp -r "$GBRAIN_SKILLS_DIR/." /app/skills-seed/; \
        else \
-         echo "WARN: could not locate gbrain skills/ directory at build time" >&2; \
+         echo "ERROR: could not locate gbrain skills/ directory under $BUN_INSTALL" >&2; \
+         exit 1; \
        fi
 
 # Entrypoint: prepares the database, seeds skills, then execs AlphaClaw.
