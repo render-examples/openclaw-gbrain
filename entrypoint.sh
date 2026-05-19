@@ -44,10 +44,52 @@ SQL
 # 3. Initialize the GBrain schema (idempotent: safe to re-run).
 #    The init wizard normally prompts for a connection URL; passing --url
 #    skips the wizard and writes config to $GBRAIN_HOME/config.json.
+#
+#    Known issue on Render Managed Postgres: GBrain migration v24
+#    (rls_backfill_missing_tables) requires the connecting role to hold the
+#    BYPASSRLS attribute. Render never grants BYPASSRLS to user roles
+#    (only the platform's superuser has it), so v24 throws and aborts the
+#    whole init. See https://github.com/garrytan/gbrain/issues/416 for the
+#    upstream design discussion.
+#
+#    The migration is a no-op for this template's threat model: it enables
+#    RLS on 10 tables that are only readable via the gbrain role, which
+#    owns the tables (Postgres table owners bypass RLS by default) and is
+#    not exposed via PostgREST. We detect the failure, mark v24 as applied
+#    in gbrain's `config` table, and re-run init to apply v25+ normally.
 # ---------------------------------------------------------------------------
+run_gbrain_init() {
+  local log_file="/tmp/gbrain-init.$$.log"
+  if gbrain init --url "$DATABASE_URL" --non-interactive 2>&1 | tee "$log_file"; then
+    rm -f "$log_file"
+    return 0
+  fi
+
+  if ! grep -q 'BYPASSRLS' "$log_file"; then
+    log "ERROR: gbrain init failed for a reason other than the known BYPASSRLS limitation. See output above."
+    rm -f "$log_file"
+    return 1
+  fi
+
+  local current_version
+  current_version="$(psql "$DATABASE_URL" -tAc "SELECT value FROM config WHERE key='version'" 2>/dev/null | tr -d '[:space:]')"
+  if [ "$current_version" != "23" ]; then
+    log "ERROR: gbrain init failed at unexpected schema version: '${current_version:-<unset>}' (expected 23 if BYPASSRLS was the only issue)."
+    rm -f "$log_file"
+    return 1
+  fi
+
+  log "Detected gbrain v24 BYPASSRLS limitation. Marking v24 as applied (RLS no-op on Render: gbrain role owns tables and is not exposed via PostgREST)."
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "UPDATE config SET value='24' WHERE key='version' AND value='23';" >/dev/null
+
+  log "Re-running gbrain init to apply remaining migrations..."
+  rm -f "$log_file"
+  gbrain init --url "$DATABASE_URL" --non-interactive
+}
+
 if [ ! -f "${GBRAIN_HOME:-/data/.gbrain}/config.json" ]; then
   log "Running first-time gbrain init..."
-  gbrain init --url "$DATABASE_URL" --non-interactive
+  run_gbrain_init
 else
   log "gbrain config found, skipping init."
 fi
