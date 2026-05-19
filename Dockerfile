@@ -1,10 +1,11 @@
-# OpenClaw + AlphaClaw + GBrain (Render template)
+# OpenClaw + AlphaClaw + GBrain (Render template, PGLite engine)
 #
-# Bakes AlphaClaw (Node) and GBrain (Bun) into a single image. On first boot,
-# the entrypoint enables pgvector + pg_trgm on the attached Postgres and runs
-# `gbrain init --url $DATABASE_URL` to apply the schema migration. After that,
-# it hands off to `alphaclaw start`, which runs the AlphaClaw watchdog and
-# the OpenClaw gateway.
+# Bakes AlphaClaw (Node) and GBrain (Bun) into a single image. The GBrain
+# brain runs as embedded PGLite (Postgres-in-WASM via @electric-sql/pglite)
+# against a file on the persistent disk — no external Postgres required.
+# On first boot the entrypoint runs `gbrain init --pglite --non-interactive`
+# to apply the schema, then execs `alphaclaw start`, which runs the
+# AlphaClaw watchdog and the OpenClaw gateway.
 
 FROM node:22-slim
 
@@ -12,14 +13,12 @@ FROM node:22-slim
 #   - git, curl: required by AlphaClaw + GBrain install paths
 #   - procps: watchdog uses ps for process supervision
 #   - cron: AlphaClaw schedules backup/maintenance jobs
-#   - postgresql-client: psql for the one-time CREATE EXTENSION step
-#   - ca-certificates, unzip: needed for the bun installer + TLS to Postgres
+#   - ca-certificates, unzip: needed for the bun installer + TLS for API calls
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
       procps \
       cron \
-      postgresql-client \
       ca-certificates \
       unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -46,10 +45,11 @@ RUN npm install --omit=dev
 # unrelated GPU ML library). Install directly from GitHub, pinned to a
 # commit SHA for reproducible builds. Bump GBRAIN_REF to upgrade.
 #
-# The postinstall script tries to run `gbrain apply-migrations`, which
-# requires DATABASE_URL (not available at build time). The script has a
-# fallback message and exits 0, but we skip it explicitly to keep the
-# build log clean.
+# The postinstall script tries to run `gbrain apply-migrations` against a
+# brain that doesn't exist yet at build time. Skip lifecycle scripts so the
+# step is fast and the build log stays clean — the entrypoint runs
+# `gbrain init --pglite` at boot, which creates the brain and applies
+# migrations against the persistent disk.
 ARG GBRAIN_REF=1d5f69fe7afb26222e69674bed08d200a3f7f0a3
 ENV npm_config_ignore_scripts=true
 RUN bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
@@ -73,7 +73,7 @@ RUN mkdir -p /app/skills-seed \
          exit 1; \
        fi
 
-# Entrypoint: prepares the database, seeds skills, then execs AlphaClaw.
+# Entrypoint: initializes the PGLite brain, seeds skills, execs AlphaClaw.
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

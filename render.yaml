@@ -1,11 +1,8 @@
-# Render Blueprint: OpenClaw + AlphaClaw + GBrain
-# Deploys an AlphaClaw-wrapped OpenClaw gateway with GBrain pre-installed as a
-# skill pack, backed by a Render Postgres instance with pgvector for hybrid
-# semantic + keyword search over your knowledge base.
-#
-# Resources are grouped under a Render project so the web service, disk, and
-# Postgres show up together in the dashboard and can be promoted to additional
-# environments (staging, etc.) without restructuring the file.
+# Render Blueprint: OpenClaw + AlphaClaw + GBrain (PGLite engine)
+# Single-container deploy: AlphaClaw + OpenClaw + GBrain, with the GBrain
+# knowledge brain stored as an embedded PGLite database on the persistent
+# disk. No external Postgres required — PGLite runs in-process and ships
+# pgvector + pg_trgm as bundled extensions.
 
 projects:
   - name: openclaw-gbrain
@@ -34,14 +31,6 @@ projects:
               - key: PORT
                 value: "10000"
 
-              # --- GBrain database ---
-              # Render Postgres connection string, injected from the database below.
-              # GBrain reads DATABASE_URL when initialized with --url.
-              - key: DATABASE_URL
-                fromDatabase:
-                  name: openclaw-gbrain-db
-                  property: connectionString
-
               # --- GBrain API keys (required at deploy time) ---
               # OpenAI: embeddings (text-embedding-3-large)
               # Anthropic: multi-query expansion + LLM chunking (Haiku)
@@ -51,15 +40,11 @@ projects:
                 sync: false
 
               # --- GBrain runtime config ---
+              # GBRAIN_HOME is treated as a PARENT directory by gbrain — it
+              # appends '.gbrain' itself. Setting GBRAIN_HOME=/data yields
+              # configDir = /data/.gbrain (brain file at
+              # /data/.gbrain/brain.pglite, config at
+              # /data/.gbrain/config.json). Both persist across deploys via
+              # the disk.
               - key: GBRAIN_HOME
-                value: /data/.gbrain
-
-        databases:
-          - name: openclaw-gbrain-db
-            plan: basic-256mb
-            databaseName: gbrain
-            user: gbrain
-            postgresMajorVersion: "16"
-            # pgvector and pg_trgm are enabled on first boot via the Dockerfile
-            # entrypoint (Render Postgres allows CREATE EXTENSION for both
-            # without elevated privileges).
+                value: /data
