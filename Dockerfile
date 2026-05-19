@@ -28,9 +28,10 @@ WORKDIR /app
 
 # Install bun (GBrain ships as a Bun package).
 # Pin to a known-good version so builds are reproducible.
+# GBrain's package.json requires "bun": ">=1.3.10".
 ENV BUN_INSTALL=/usr/local/bun
 ENV PATH=$BUN_INSTALL/bin:/app/node_modules/.bin:$PATH
-RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.1.34" \
+RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.13" \
     && bun --version
 
 # Install AlphaClaw (which pulls in OpenClaw as a managed dependency).
@@ -40,13 +41,25 @@ RUN npm install --omit=dev
 
 # Install GBrain globally so the `gbrain` CLI is on PATH for the entrypoint
 # and for any skills that shell out to it.
-RUN bun add -g gbrain
+#
+# GBrain is NOT published on npm (the npm package named `gbrain` is an
+# unrelated GPU ML library). Install directly from GitHub, pinned to a
+# commit SHA for reproducible builds. Bump GBRAIN_REF to upgrade.
+#
+# The postinstall script tries to run `gbrain apply-migrations`, which
+# requires DATABASE_URL (not available at build time). The script has a
+# fallback message and exits 0, but we skip it explicitly to keep the
+# build log clean.
+ARG GBRAIN_REF=1d5f69fe7afb26222e69674bed08d200a3f7f0a3
+ENV npm_config_ignore_scripts=true
+RUN bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
+    && gbrain --version || true
 
-# Skill pack: GBrain's seven fat-markdown skills (ingest, query, maintain,
-# enrich, briefing, migrate, install). They ship inside the gbrain npm package
-# under skills/. We extract them at build time and stage them in
-# /app/skills-seed; the entrypoint copies them into $ALPHACLAW_ROOT_DIR/skills
-# on first boot, since the persistent disk isn't mounted during build.
+# Skill pack: GBrain's fat-markdown skills (ingest, query, maintain, enrich,
+# briefing, migrate, install, and ~40 more). They live at the repo root
+# under skills/. We stage them in /app/skills-seed; the entrypoint copies
+# them into $ALPHACLAW_ROOT_DIR/skills on first boot, since the persistent
+# disk isn't mounted during build.
 RUN mkdir -p /app/skills-seed \
     && GBRAIN_SKILLS_DIR="$BUN_INSTALL/install/global/node_modules/gbrain/skills" \
     && if [ ! -d "$GBRAIN_SKILLS_DIR" ]; then \
