@@ -1,5 +1,10 @@
 # OpenClaw + AlphaClaw + GBrain on Render
 
+> [!TIP]
+> **Render sponsors AlphaClaw.**
+>
+> Redeem $50 in Render hosting credits with code `RENDER-ALPHACLAW`.
+
 One-click Render deploy for [OpenClaw](https://github.com/openclaw/openclaw) wrapped in [AlphaClaw](https://github.com/chrysb/alphaclaw), with [GBrain](https://github.com/garrytan/gbrain) pre-installed as a skill pack so your agent has a persistent, hybrid-searchable knowledge brain from the moment it boots.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy-template/api/github/start?template_repo=openclaw-gbrain)
